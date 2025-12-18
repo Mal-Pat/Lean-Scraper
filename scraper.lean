@@ -1,9 +1,15 @@
-import Mathlib
 import Lean
+import Lean.Meta
+import Init.System
+
+set_option synthInstance.maxHeartbeats 1000000
 
 set_option pp.proofs false
 
-open Lean Elab Command
+set_option maxRecDepth 1000
+set_option compiler.extract_closed false
+
+open Lean Elab Command Meta
 
 def levelParamsToMessageData (levelParams : List Name) : MessageData :=
   match levelParams with
@@ -17,35 +23,27 @@ def levelParamsToMessageData (levelParams : List Name) : MessageData :=
 def mkHeader (kind : String) (id : Name) (levelParams : List Name) (type : Expr)
     (safety : DefinitionSafety) (sig : Bool := true) : CommandElabM MessageData := do
   let mut attrs := #[]
-
   match (← getReducibilityStatus id) with
   | ReducibilityStatus.irreducible =>   attrs := attrs.push m!"irreducible"
   | ReducibilityStatus.reducible =>     attrs := attrs.push m!"reducible"
   | ReducibilityStatus.semireducible => pure ()
-
   if defeqAttr.hasTag (← getEnv) id then
     attrs := attrs.push m!"defeq"
-
   let mut m : MessageData := m!""
   unless attrs.isEmpty do
     m := m ++ "@[" ++ MessageData.joinSep attrs.toList ", " ++ "] "
-
   match safety with
   | DefinitionSafety.unsafe  => m := m ++ "unsafe "
   | DefinitionSafety.partial => m := m ++ "partial "
   | DefinitionSafety.safe    => pure ()
-
   if isProtected (← getEnv) id then
     m := m ++ "protected "
-
   let id' ← match privateToUserName? id with
     | some id' =>
         m := m ++ "private "
         pure id'
     | none => pure id
-
   --let typeStr := (← ppExpr type).pretty
-
   if sig then
     return m!"{m}{kind} {id'}{levelParamsToMessageData levelParams} : {type}"
   else
@@ -65,26 +63,24 @@ partial def printStructure (id : Name) (levelParams : List Name) (numParams : Na
     (type : Expr) (ctor : Name) (isUnsafe : Bool) : CommandElabM String := do
   let env ← getEnv
   let kind := if isClass env id then "class" else "structure"
-  let header ← mkHeader kind id levelParams type (if isUnsafe then .unsafe else .safe) (sig := false)
+  let header ← mkHeader kind id levelParams type
+    (if isUnsafe then .unsafe else .safe) (sig := false)
   let levels := levelParams.map Level.param
   liftTermElabM <| forallTelescope (← getConstInfo id).type fun params _ =>
     let s := Expr.const id levels
     withLocalDeclD `self (mkAppN s params) fun self => do
       let mut m : MessageData := header
-      -- Signature
       m := m ++ " " ++ .ofFormatWithInfosM do
-        let (stx, infos) ← PrettyPrinter.delabCore s (delab := PrettyPrinter.Delaborator.delabConstWithSignature)
+        let (stx, infos) ← PrettyPrinter.delabCore s
+          (delab := PrettyPrinter.Delaborator.delabConstWithSignature)
         pure ⟨← PrettyPrinter.ppTerm ⟨stx⟩, infos⟩
       m := m ++ " " ++ m!"number of parameters: {numParams}"
-      -- Parents
       let parents := getStructureParentInfo env id
       unless parents.isEmpty do
         m := m ++ " " ++ "parents:"
         for parent in parents do
           let ptype ← inferType (mkApp (mkAppN (.const parent.projFn levels) params) self)
           m := m ++ indentD m!"{.ofConstName parent.projFn (fullNames := true)} : {ptype}"
-      -- Fields
-      -- Collect autoParam tactics, which are all on the flat constructor:
       let flatCtorName := mkFlatCtorOfStructCtorName ctor
       let flatCtorInfo ← getConstInfo flatCtorName
       let autoParams : NameMap Syntax ← forallTelescope flatCtorInfo.type fun args _ =>
@@ -100,7 +96,6 @@ partial def printStructure (id : Name) (levelParams : List Name) (numParams : Na
         m := m ++ " " ++ "fields: (none)"
       else
         m := m ++ " " ++ "fields:"
-        -- Map of fields to projections of `self`
         let fieldMap : NameMap Expr ← fields.foldlM (init := {}) fun fieldMap field => do
           pure <| fieldMap.insert field (← mkProjection self field)
         for field in fields do
@@ -108,31 +103,29 @@ partial def printStructure (id : Name) (levelParams : List Name) (numParams : Na
           let fi ← getFieldOrigin source field
           let proj := fi.projFn
           let modifier := if isPrivateName proj then "private " else ""
-          let ftype ← inferType (fieldMap.find! field)
+          let ftype ← inferType (fieldMap.get! field)
           let value ←
             if let some stx := autoParams.find? field then
               let stx : TSyntax ``Parser.Tactic.tacticSeq := ⟨stx⟩
               pure m!" := by{indentD stx}"
             else if let some defFn := getEffectiveDefaultFnForField? env id field then
-              if let some (_, val) ← instantiateStructDefaultValueFn? defFn levels params (pure ∘ fieldMap.find?) then
+              if let some (_, val) ← instantiateStructDefaultValueFn? defFn levels
+                  params (pure ∘ fieldMap.find?) then
                 pure m!" :={indentExpr val}"
               else
                 pure m!" := <error>"
             else
               pure m!""
-          m := m ++ indentD (m!"{modifier}{.ofConstName proj (fullNames := true)} : {MessageData.nest 2 ftype}{value}")
-      -- Constructor
+          m := m ++ indentD (m!"{modifier}{.ofConstName proj (fullNames := true)} : \
+            {MessageData.nest 2 ftype}{value}")
       let cinfo := getStructureCtor (← getEnv) id
       let ctorModifier := if isPrivateName cinfo.name then "private " else ""
       m := m ++ " " ++ "constructor:" ++ indentD (ctorModifier ++ .signature cinfo.name)
-      -- Resolution order
       let resOrder ← getStructureResolutionOrder id
       if resOrder.size > 1 then
-        m := m ++ " " ++ "field notation resolution order:"
-          ++ indentD (MessageData.joinSep (resOrder.map (.ofConstName · (fullNames := true))).toList ", ")
-      -- Omit proofs; the delaborator enables `pp.proofs` for non-constant proofs, but we don't want this for default values
+        m := m ++ " " ++ "field notation resolution order:" ++ indentD (MessageData.joinSep
+          (resOrder.map (.ofConstName · (fullNames := true))).toList ", ")
       withOptions (fun opts => opts.set pp.proofs.name false) do
-        --logInfo m
         (← addMessageContext m).toString
 
 def printInduct (id : Name) (levelParams : List Name) (numParams : Nat) (type : Expr)
@@ -183,9 +176,9 @@ def formatPrint (doc : String) (body : String) : String :=
   (doc ++ " " ++ body).replace "\n" " "
 
 /-- Finds the name's info and calls the appropriate print function -/
-def getPrintStrFromName (id : Name) : CommandElabM String := do
-  let env ← getEnv
-  match env.find? id with
+def getPrintStr (inp : Name × ConstantInfo) : CommandElabM String := do
+  let ⟨id, info⟩ := inp
+  match info with
   | ConstantInfo.defnInfo { levelParams := us, type := t, value := v, safety := s, .. } =>
       let body ← printDef "def" id us t v s
       let doc ← getDocString id
@@ -195,6 +188,7 @@ def getPrintStrFromName (id : Name) : CommandElabM String := do
       let doc ← getDocString id
       return formatPrint doc body
   | ConstantInfo.inductInfo { levelParams := us, numParams, type := t, ctors, isUnsafe := u, .. } =>
+    let env ← getEnv
     if isStructure env id then
       let body ← printStructure id us numParams t ctors[0]! u
       let doc ← getDocString id
@@ -203,58 +197,76 @@ def getPrintStrFromName (id : Name) : CommandElabM String := do
       let body ← printInduct id us numParams t ctors u
       let doc ← getDocString id
       return formatPrint doc body
-  | some _ => return "<not def, thm, struct or induct>"
-  | none => return "<error>"
+  | _ => return "<error>"
 
-/-- Finds all possible name resolutions and returns the print string for each -/
-def getPrintStrList (s : String) : CommandElabM <| List String := do
-  let id := mkIdent s.toName
-  let allNames ← liftCoreM <| realizeGlobalConstWithInfos id
-  allNames.mapM (getPrintStrFromName ·)
+def checkUseful (info : ConstantInfo) : Bool :=
+  match info with
+  | .defnInfo _   => true
+  | .thmInfo _    => true
+  | .inductInfo _ => true
+  | _             => false
 
-/-- Extracts the value of key `key` from a jsonl file (currently capped at first 100 lines) -/
-def extractValuesFromJsonl (key : String) (filepath : String)
-    : IO <| Except String <| List String := do
-  let mut names : List String := []
-  if (filepath : System.FilePath).extension != "jsonl" then
-    return Except.error "File extension not `.jsonl`"
-  else
-    let content ← IO.FS.readFile filepath
-    let lines := content.splitOn "\n"
-    let mut i := 0
-    for line in lines do
-      let trimmedLine := line.trim
-      if !trimmedLine.isEmpty then
-        match Json.parse trimmedLine with
-        | Except.error e =>
-          return Except.error s!"Failed to parse JSON on line: {trimmedLine}.\n Error: {e}"
-        | Except.ok js =>
-          match js.getObjValAs? String key with
-          | Except.ok nameValue =>
-            if i >= 100 then
-              return Except.ok <| List.dedup names.reverse
-            else
-              names := nameValue :: names
-            i := i + 1
-          | Except.error e =>
-            return Except.error s!"Failed to get '{key}' string key from line: {trimmedLine}. Error: {e}"
-  return Except.ok <| List.dedup names.reverse
+def constantDecls : CommandElabM <| Array <| Name × ConstantInfo := do
+  let env ← getEnv
+  logInfo "got env"
+  IO.println "got env"
+  let decls := env.constants.map₁.toArray
+  logInfo m!"got decls : {decls.size}"
+  IO.println s!"got decls : {decls.size}"
+  let filtered_decls := decls.filter <| fun (_,info) => checkUseful info
+  return filtered_decls
 
-/-- Given a `jsonl` file, the `name` values are extracted and the
-result of `#print <name value>` are written into the output file -/
-def writeDocs (inFilePath : String) (outFilePath : String) : CommandElabM Unit := do
-  -- Extract all "name" values from the jsonl file at `inFilePath`
-  let namesE ← extractValuesFromJsonl "name" inFilePath
-  match namesE with
+def writeDocs (outFilePath : String) : CommandElabM Unit := do
+  -- Get all name values
+  let names ← constantDecls
+  logInfo m!"got names : {names.size}"
+  IO.println s!"got names : {names.size}"
+  -- Get the print object for each name in names
+  let printObjs ← names.mapM <| getPrintStr
+  let handle ← IO.FS.Handle.mk outFilePath IO.FS.Mode.write
+  -- Write each object to `outFilePath`
+  for obj in printObjs do
+    handle.putStrLn obj
+  handle.flush
+  IO.println s!"Content successfully written to {outFilePath}"
+
+def writeDocsCore (outFilePath : String) : CoreM Unit := do
+  liftCommandElabM <| writeDocs outFilePath
+
+--#eval writeDocs "LeanScraper/text.txt"
+
+-- def constantNames  : MetaM (Array Name) := do
+--   let env ← getEnv
+--   let decls := env.constants.map₁.toArray
+--   let allNames := decls.map $ fun (name, _) => name
+--   let names ← allNames.filterM (isWhiteListed)
+--   let names ←  names.filterM fun n => do pure <|
+--     !(excludePrefixes.any (fun pfx => pfx.isPrefixOf n)) && !(excludeSuffixes.any (fun pfx => pfx.isSuffixOf n)) && (← isWhiteListed n) && !(isMatchCase n)
+--   return names
+
+-- def propNames : MetaM (Array Name) := do
+--   (← constantNames).filterM fun name => do
+--     let info? := ((← getEnv).find? name)
+--     let value? := info? >>= ConstantInfo.value?
+--     let check? ← value?.mapM isProof
+--     return check?.getD false
+
+#check ConstantInfo.value?
+
+def EIO.runToIO' (eio : EIO Exception α) : IO α  := do
+  match ←  eio.toIO' with
+  | Except.ok x =>
+      pure x
   | Except.error e =>
-    IO.eprintln s!"Error: {e}"
-  | Except.ok names =>
-    -- Get the print object for each name in names
-    let printObjs ← names.flatMapM <| getPrintStrList
-    let handle ← IO.FS.Handle.mk outFilePath IO.FS.Mode.write
-    -- Write each object to `outFilePath`
-    for obj in printObjs do
-      handle.putStrLn obj
-    handle.flush
-    IO.println s!"Content successfully written to {outFilePath}"
+      let msg ← e.toMessageData.toString
+      IO.throwServerError msg
 
+def main : IO Unit := do
+  let outFilePath := "LeanScraper/text.txt"
+  let env ← importModules (loadExts := true) #[{module := `Mathlib}] {}
+  IO.println "Started!"
+  let coreCtx : Core.Context :=
+    {fileName := "", fileMap := {source:= "", positions := #[]},
+      maxHeartbeats := 1000000000, maxRecDepth := 10000}
+  let _ ← writeDocsCore outFilePath |>.run' coreCtx {env := env} |>.runToIO'
+  IO.println "Success!"

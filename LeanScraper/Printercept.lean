@@ -6,7 +6,8 @@ import Lean
 
 open Lean Meta Elab Command
 
-def modifyScopeOptions (ls : List Scope) (f : Options → Options) : List Scope :=
+def modifyScopeOptions (ls : List Scope) (f : Options → Options)
+    : List Scope :=
   match ls with
   | [] => panic! "unreachable"
   | h :: l => {h with opts := f h.opts} :: l
@@ -16,12 +17,12 @@ instance : MonadWithOptions CommandElabM where
     modify (fun σ => {σ with scopes := modifyScopeOptions σ.scopes f})
     act
 
-def printercept (t:Ident) : CommandElabM String :=
-  withOptions (· |>.insert `pp.proofs false) do
+def printercept (t : Ident) (proofs : Bool := true)
+    : CommandElabM String :=
+  withOptions (· |>.insert `pp.proofs proofs) do
   elabCommand =<< `(command | #print $t)
   return ← (← get).messages.unreported[0]!.data.toString
 
-def printerceptName (n : Name) : CommandElabM String :=
-  withOptions (· |>.insert `pp.proofs false) do
-  elabCommand =<< `(command | #print $(mkIdent n))
-  return ← (← get).messages.unreported[0]!.data.toString
+def printerceptName (n : Name) (proofs : Bool := true)
+    : CommandElabM String :=
+  printercept (mkIdent n) proofs

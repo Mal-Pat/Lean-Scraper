@@ -6,7 +6,11 @@ open Lean
 Set the modules you want to extract from
 -/
 def setModules : Array Import :=
-  #[{module := `Lean}]
+  #[
+    {module := `Lean},
+    {module := `Mathlib}
+    -- Add modules in the format shown above.
+  ]
 
 /-
 Set the constants filter -
@@ -31,6 +35,7 @@ def setProofs : Bool :=
 
 /-
 Set the output (.jsonl) path for the data
+(relative to the root of the repo)
 -/
 def setDataOutFilePath : String :=
-  "Data/lean.jsonl"
+  "Data/output.jsonl"

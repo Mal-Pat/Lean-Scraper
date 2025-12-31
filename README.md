@@ -16,7 +16,7 @@ theorem Nat.add_le_add : ∀ {a b c d : Nat}, a ≤ b → c ≤ d → a + c ≤ 
 fun {a b c d} h₁ h₂ ↦ Nat.le_trans (Nat.add_le_add_right h₁ c) (Nat.add_le_add_left h₂ b)
 ```
 
-Tthe information associated with constant declarations is stored in the `ConstantInfo` type.
+The information associated with constant declarations is stored in the `ConstantInfo` type.
 
 ```lean4
 inductive ConstantInfo where
@@ -42,7 +42,7 @@ inductive ConstantInfo where
 
 Format:
 ```json
-{"docstring":_, "info":_, "name":_, "print":_}
+{"docstring":"", "info":"", "name":"", "print":""}
 ```
 
 Example:
@@ -84,4 +84,4 @@ It could take anywhere between 2 min to 20 min to run, based on your system.
 
 The data will be extracted into the output file you set.
 
-Running `lake exe Scraper` with the same output file in `LeanScraper/Inputs.lean` will rewrite that file.
+Running `lake exe Scraper` with the same output file in `LeanScraper/Inputs.lean` will overwrite any data in that file.

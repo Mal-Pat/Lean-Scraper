@@ -5,14 +5,14 @@ open Lean
 /-
 Set the modules you want to extract from
 -/
-def modules : Array Import :=
-  #[{module := `Mathlib}]
+def setModules : Array Import :=
+  #[{module := `Lean}]
 
 /-
-Set whatever you want to extract to `true`,
-and the rest to `false`.
+Set the constants filter -
+`true` if you want it, `false` otherwise.
 -/
-def checkUseful (info : ConstantInfo) : Bool :=
+def setFilter (info : ConstantInfo) : Bool :=
   match info with
   | .axiomInfo _  => false
   | .defnInfo _   => true
@@ -24,7 +24,13 @@ def checkUseful (info : ConstantInfo) : Bool :=
   | .recInfo _    => false
 
 /-
+Set if you want proofs to be present (`true`) or omitted (`false`).
+-/
+def setProofs : Bool :=
+  false
+
+/-
 Set the output (.jsonl) path for the data
 -/
-def dataOutFilePath : String :=
-  "Data/mathlib.jsonl"
+def setDataOutFilePath : String :=
+  "Data/lean.jsonl"

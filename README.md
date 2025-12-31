@@ -35,7 +35,7 @@ inductive ConstantInfo where
 This code extracts all the constants in the module, filters out what you don't want, takes the output of running `#print` on those constants and stores it all in a jsonl file, with each object in the format given below.
 
 ```json
-{"name": <name>, "info": <info>, "print": <print output>}
+{"name": "Nat.add_le_add", "info": "thm", "print": "theorem Nat.add_le_add : ∀ {a b c d : Nat}, a ≤ b → c ≤ d → a + c ≤ b + d :=\nfun {a b c d} h₁ h₂ ↦ Nat.le_trans (Nat.add_le_add_right h₁ c) (Nat.add_le_add_left h₂ b)"}
 ```
 
 ## How to Use

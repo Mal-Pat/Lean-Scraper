@@ -25,5 +25,3 @@ def printerceptName (n : Name) : CommandElabM String :=
   withOptions (· |>.insert `pp.proofs false) do
   elabCommand =<< `(command | #print $(mkIdent n))
   return ← (← get).messages.unreported[0]!.data.toString
-
-#eval printerceptName ``Nat.zero_le

@@ -18,5 +18,5 @@ rev = "v4.27.0-rc1"
 name = "LeanScraper"
 
 [[lean_exe]]
-name = "LeanScraper"
+name = "Scraper"
 root = "LeanScraper"

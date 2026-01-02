@@ -42,12 +42,22 @@ inductive ConstantInfo where
 
 Format:
 ```json
-{"docstring":"", "info":"", "name":"", "print":""}
+{
+  "docstring":string, 
+  "info":string, 
+  "name":string, 
+  "print":string
+}
 ```
 
 Example:
 ```json
-{"docstring":"The set of closed points. ","info":"defn","name":"closedPoints","print":"private theorem SimplexCategoryGenRel.simplicialInsert_length._proof_1_1 : ∀ (a : Nat),\n  Eq (SimplexCategoryGenRel.simplicialInsert a List.nil).length (instHAdd.hAdd List.nil.length 1) :=\n⋯"}
+{
+  "docstring":"The set of closed points. ",
+  "info":"defn",
+  "name":"closedPoints",
+  "print":"private theorem SimplexCategoryGenRel.simplicialInsert_length._proof_1_1 : ∀ (a : Nat),\n  Eq (SimplexCategoryGenRel.simplicialInsert a List.nil).length (instHAdd.hAdd List.nil.length 1) :=\n⋯"
+}
 ```
 
 (the example given above has `setProofs` set to `false`)

@@ -43,10 +43,10 @@ inductive ConstantInfo where
 Format:
 ```json
 {
-  "docstring":string, 
-  "info":string, 
-  "name":string, 
-  "print":string
+  "docstring":"string", 
+  "info":"string", 
+  "name":"string", 
+  "print":"string"
 }
 ```
 
